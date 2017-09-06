@@ -1,7 +1,16 @@
-#gantt data generation spike
+---
+title: "Gantt Style Project Overview"
+output:
+  html_document: default
+  html_notebook: default
+---
 
-# generate realistic data for a gantt chart for a large project
+# Introduction
 
+The purpose of this notebook are to firstly to generate realistic project milestone data  for a large project (similar to a BCBS-239 programme) then secondly to build an example Gantt chart 
+but one that shows the details as well as an overview.
+
+```{r echo=FALSE}
 if ("tidyr" %in% rownames(installed.packages()) == FALSE) {install.packages("tidyr", repos = "http://cran.ma.imperial.ac.uk/")}
 if ("dplyr" %in% rownames(installed.packages()) == FALSE) {install.packages("dplyr", repos = "http://cran.ma.imperial.ac.uk/")}
 if ("readr" %in% rownames(installed.packages()) == FALSE) {install.packages("readr", repos = "http://cran.ma.imperial.ac.uk/")}
@@ -10,8 +19,9 @@ if ("forcats" %in% rownames(installed.packages()) == FALSE) {install.packages("f
 if ("scales" %in% rownames(installed.packages()) == FALSE) {install.packages("scales", repos = "http://cran.ma.imperial.ac.uk/")}
 if ("stringr" %in% rownames(installed.packages()) == FALSE) {install.packages("stringr", repos = "http://cran.ma.imperial.ac.uk/")}
 if ("openxlsx" %in% rownames(installed.packages()) == FALSE) {install.packages("openxlsx", repos = "http://cran.ma.imperial.ac.uk/")}
-if ("lubridate" %in% rownames(installed.packages()) == FALSE) {install.packages("lubridate", repos = "http://cran.ma.imperial.ac.uk/")}
+```
 
+```{r  warning=FALSE, message=FALSE}
 library(tidyr)
 library(dplyr)
 library(readr)
@@ -20,46 +30,76 @@ library(forcats)
 library(stringr)
 library(scales)
 library(openxlsx)
+```
 
-# principles 1 and 2 have many milestones, 10 and 11 have relatively fewer
+Create the basic parameters to generate some realistic random data.
+
+```{r message=FALSE}
+# This csv contains the 11 principles 
+(df_p <-readr::read_csv("Principle.csv"))
+```
+
+```{r}
+
+# There are 11 principle with keys 1 through 11.  The next lines generate a vector 
+# of principle keys contain 30 Principle 1, 35 Principle 2 and so on
+# This vector is used in a sample function to generate milestones.
+
+# Overall, principles 1 and 2 have many milestones, 10 and 11 have relatively fewer
 principle_dist <- c(rep(1:11, c(30, 35, 10, 7, 8, 17, 22, 10, 10, 5, 3)))
+
+# This distribution will generate relatively more milestones for principle 6 and 9
 principle_dist1 <- c(rep(1:11, c(10, 11, 10, 7, 45, 17, 22, 40, 10, 5, 2)))
+
+# This distribution will generate relatively more milestones for principle 2, 7 and 9
 principle_dist2 <- c(rep(1:11, c(5, 35, 10, 7, 8, 2, 22, 10, 30, 5, 1)))
+
+# The project runs from 2016 to 2018 inclusive.  
 
 project_length_days = 365 * 3 # 3 years
 project_start_date <- as.Date("2016-01-01")
+
 project_critical_date1 <- as.Date("2016-12-05")
 project_critical_date2 <- as.Date("2017-12-01")
 
-current_date <- as.Date("2017-06-12")
-milestone_rag_values <- c("Red", "Amber", "Green")
-milestone_status_values <- c("Active", "Completed")
+current_date <- as.Date("2017-09-12")
 
+# This give a distribution for the relative weights (importance) of the milestones
 weight_values <- c(0.1, 0.3, 0.5, 0.9, 2.7, 5)
 
-df_p <-readr::read_csv("Principle.csv")
+milestone_status_values <- c("Active", "Completed")
 
-# let's generate a baseline of evenly spread milestones
+```
+
+```{r}
+# Generate a baseline of milestones evenly spread over the project timescale
 n <- 1000
 df <- data_frame(
   PrincipleKey = sample(principle_dist, n, replace = TRUE),
   MilestoneDate = sample(project_start_date + 1:project_length_days, n, replace = TRUE)
 )
 
+# Generate a overlay of milestones clustered around critical_date_1 and with a different distribution over the principles
 n <- 500
 df_bump1 <- data_frame(
   PrincipleKey = sample(principle_dist1, n, replace = TRUE),
-  MilestoneDate = project_critical_date1 + floor(rnorm(n, 0, 20))
+  MilestoneDate = project_critical_date1 + floor(rnorm(n, 0, 50))
 )
 
+# Generate another overlay of milestones clustered around critical_date_2 and also with a different distribution over the principles
 n <- 600
 df_bump2 <- data_frame(
   PrincipleKey = sample(principle_dist2, n, replace = TRUE),
   MilestoneDate = project_critical_date2 + floor(rnorm(n, 0, 30))
 )
 
+# Combined to get the final set of milestone data
 df_total <- bind_rows(df, df_bump1, df_bump2)
 
+# Add status information (whether active, complted or overdue) to the milestones.
+# Firstly, assign an active or completed status based on the current_date 
+# (using rnorm to allow some leeway so some future milesones are completed and some past one are active)
+# Then update all historic milestones with active status to overdue status.
 n_total <- nrow(df_total)
 df_total <-
   df_total %>%
@@ -67,17 +107,20 @@ df_total <-
     MilestoneKey = 1:n_total,
     MilestoneStatus = ifelse(MilestoneDate > current_date + rnorm(n_total, 0, 120), "Active", "Completed"),
     MilestoneStatus = ifelse(MilestoneDate < current_date & MilestoneStatus == "Active", "Overdue", MilestoneStatus),
-    MilestoneRAG = sample(milestone_rag_values, n_total, replace = TRUE),
     Weight = sample(weight_values, n_total, replace = TRUE)
   )
 
+# Join on the principle name and remove the surrogate key to get the visual-ready dataset.
 df_final <- df_total %>%
-  inner_join(df_p) %>%
+  inner_join(df_p, by = "PrincipleKey") %>%
   mutate(PrincipleName = fct_reorder(PrincipleName, -PrincipleKey))
 
-# save(df_final, file = "Project Status.rData")
-# write_csv(df_final, "Project Status.csv")
+df_final
+```
 
+Create a visual that shows all milestones by principle over the three year period of the project. Base on a Gantt chart so it is instantly familar to project managers.  Use jittering and partially transparent marks to help show the detail of the milestones while showing the overall picture.
+
+```{r fig.width = 11, fig.height = 10}
 ggplot(df_final, aes(x =  MilestoneDate, y = PrincipleName, col = MilestoneStatus, 
                 fill = MilestoneStatus)) +
   geom_jitter(aes(alpha = 0.4, size = Weight),  width = 0.3, height = 0.3, shape = 21) +
@@ -89,7 +132,6 @@ ggplot(df_final, aes(x =  MilestoneDate, y = PrincipleName, col = MilestoneStatu
   geom_vline(xintercept = as.numeric(current_date), linetype = "dotted", col = "gray22") +
   theme_minimal() +
   theme(legend.position = "bottom") +
-  ggtitle(label = "Milestones  By Principle",
-          subtitle = "The more important milestones have a larger size")
-
-# ggsave("Gantt style Project Overview Wider.png", width = 15, height = 7,device = "png")
+  ggtitle(label = "Risk And Data Aggregation And Reporting - Project Progress",
+          subtitle = "Shows milestones by principle, date and status. (More important milestones have a larger size)")
+```
