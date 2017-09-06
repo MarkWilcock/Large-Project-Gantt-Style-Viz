@@ -4,4 +4,4 @@
 .Ruserdata
 artefacts/
 .png
-.html
+*.html
